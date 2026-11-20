@@ -1,0 +1,21 @@
+{
+  "name": "KRSHI — farm records for coastal Karnataka",
+  "short_name": "KRSHI",
+  "description": "Farm diary, labour, expenses, market prices, weather and schemes.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf8f3",
+  "theme_color": "#1c3520",
+  "lang": "en-IN",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Activity diary", "url": "/app/diary" },
+    { "name": "Market prices", "url": "/app/market" },
+    { "name": "Labour", "url": "/app/labor" }
+  ]
+}

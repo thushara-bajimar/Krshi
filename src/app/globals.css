@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Variable", "Noto Sans Kannada", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces Variable", Georgia, serif;
+
+  --color-leaf-50: #f2f7f1;
+  --color-leaf-100: #e3eee0;
+  --color-leaf-200: #c7ddc1;
+  --color-leaf-300: #9fc497;
+  --color-leaf-400: #6fa466;
+  --color-leaf-500: #4c8a45;
+  --color-leaf-600: #3b7036;
+  --color-leaf-700: #2f592d;
+  --color-leaf-800: #264726;
+  --color-leaf-900: #1c3520;
+  --color-leaf-950: #12241a;
+
+  --color-earth-50: #f8f4ee;
+  --color-earth-100: #efe6d8;
+  --color-earth-200: #ddcbb0;
+  --color-earth-300: #c6a981;
+  --color-earth-400: #ad875a;
+  --color-earth-500: #8f6b43;
+  --color-earth-600: #735537;
+  --color-earth-700: #5a432d;
+  --color-earth-800: #463526;
+
+  --color-cream: #faf8f3;
+  --color-sand: #f1ede4;
+  --color-line: #e6e1d6;
+  --color-ink: #1d2420;
+  --color-muted: #5b645d;
+  --color-clay-50: #fbefec;
+  --color-clay-600: #b4432f;
+  --color-clay-700: #93351f;
+
+  --radius-card: 0.875rem;
+  --shadow-card: 0 1px 2px rgb(29 36 32 / 0.04), 0 1px 1px rgb(29 36 32 / 0.03);
+  --shadow-pop: 0 10px 30px -10px rgb(29 36 32 / 0.25);
+}
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { @apply bg-cream text-ink antialiased; font-feature-settings: "cv11", "ss01"; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-leaf-600; }
+  input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
+  ::selection { @apply bg-leaf-200; }
+  /* grid items default to min-width:auto, which lets long (truncated) text widen the page on phones */
+  .grid > * { min-width: 0; }
+  html, body { overflow-x: clip; }
+}
+
+@utility card {
+  @apply rounded-[var(--radius-card)] border border-line bg-white shadow-[var(--shadow-card)];
+}
+@utility tabular { font-variant-numeric: tabular-nums; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+  .card { box-shadow: none; break-inside: avoid; }
+  @page { margin: 14mm; }
+}
+
+.leaflet-container { font: inherit; border-radius: 0.75rem; }
