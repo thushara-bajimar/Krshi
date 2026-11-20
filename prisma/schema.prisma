@@ -1,0 +1,860 @@
+// KRSHI database schema
+// Conventions:
+//  * Money: Decimal(12,2) in INR. Quantities: Decimal(14,3). Areas: Decimal(12,4) in the unit stored beside them.
+//  * Records that can be created offline accept a client-generated UUID as `id` (idempotent create) and carry
+//    an integer `version` used for optimistic concurrency / conflict detection during sync.
+//  * Soft deletion (`deletedAt`) is used for syncable records so offline clients can learn about deletions.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- Users & auth
+
+enum Language {
+  en
+  kn
+}
+
+enum AreaUnit {
+  ACRE
+  CENT
+  HECTARE
+  SQ_M
+  GUNTA
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  language     Language  @default(en)
+  district     String?
+  taluk        String?
+  village      String?
+  avatarPath   String?
+  areaUnit     AreaUnit  @default(ACRE)
+  isDemo       Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  settings      UserSettings?
+  sessions      Session[]
+  memberships   FarmMembership[]
+  notifications Notification[]
+  schemeTrackers SchemeTracker[]
+  marketFavorites MarketFavorite[]
+  priceAlerts   PriceAlert[]
+  mutations     ProcessedMutation[]
+  inputProducts InputProduct[]
+}
+
+model UserSettings {
+  userId               String   @id
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifyTasks          Boolean  @default(true)
+  notifyInventory      Boolean  @default(true)
+  notifyPayments       Boolean  @default(true)
+  notifyWeather        Boolean  @default(true)
+  notifyPriceAlerts    Boolean  @default(true)
+  taskReminderDays     Int      @default(2)
+  voiceLanguage        String   @default("en-IN")
+  currentFarmId        String?
+  updatedAt            DateTime @updatedAt
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------- Farms, plots, crops
+
+enum FarmRole {
+  OWNER
+  MANAGER
+  FINANCE_VIEWER
+  VIEWER
+}
+
+model Farm {
+  id          String    @id @default(uuid())
+  name        String
+  district    String
+  taluk       String?
+  village     String?
+  location    String?
+  latitude    Decimal?  @db.Decimal(9, 6)
+  longitude   Decimal?  @db.Decimal(9, 6)
+  totalArea   Decimal?  @db.Decimal(12, 4)
+  areaUnit    AreaUnit  @default(ACRE)
+  description String?
+  isDemo      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  memberships FarmMembership[]
+  plots       Plot[]
+  activities  Activity[]
+  workers     Worker[]
+  labor       LaborRecord[]
+  expenses    Expense[]
+  incomes     Income[]
+  harvests    Harvest[]
+  inventory   InventoryItem[]
+  tasks       Task[]
+  soilTests   SoilTest[]
+  equipment   Equipment[]
+  issues      CropIssue[]
+  attachments Attachment[]
+  notifications Notification[]
+}
+
+model FarmMembership {
+  id          String   @id @default(uuid())
+  farmId      String
+  farm        Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        FarmRole
+  invitedById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([farmId, userId])
+  @@index([userId])
+}
+
+model Crop {
+  id        String   @id @default(uuid())
+  key       String   @unique // e.g. "arecanut"; user-added crops get a generated key
+  name      String
+  nameKn    String?
+  category  String   // plantation | spice | cereal | fruit | vegetable | other
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  plots      Plot[]
+  activities Activity[]
+  expenses   Expense[]
+  incomes    Income[]
+  harvests   Harvest[]
+  tasks      Task[]
+  issues     CropIssue[]
+}
+
+enum PlotStatus {
+  ACTIVE
+  FALLOW
+  PREPARING
+  ARCHIVED
+}
+
+model Plot {
+  id           String     @id @default(uuid())
+  farmId       String
+  farm         Farm       @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  name         String
+  area         Decimal    @db.Decimal(12, 4)
+  areaUnit     AreaUnit   @default(ACRE)
+  cropId       String?
+  crop         Crop?      @relation(fields: [cropId], references: [id], onDelete: SetNull)
+  variety      String?
+  plantingDate DateTime?  @db.Date
+  plantCount   Int?
+  soilType     String?
+  irrigation   String?
+  notes        String?
+  latitude     Decimal?   @db.Decimal(9, 6)
+  longitude    Decimal?   @db.Decimal(9, 6)
+  status       PlotStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  activities Activity[]
+  labor      LaborRecord[]
+  expenses   Expense[]
+  incomes    Income[]
+  harvests   Harvest[]
+  tasks      Task[]
+  soilTests  SoilTest[]
+  issues     CropIssue[]
+
+  @@unique([farmId, name])
+  @@index([farmId])
+}
+
+// ---------------------------------------------------------------- Activity diary
+
+enum ActivityType {
+  FERTILIZER
+  PESTICIDE
+  FUNGICIDE
+  HERBICIDE
+  IRRIGATION
+  PRUNING
+  CLEANING
+  PLANTING
+  HARVESTING
+  SOIL_PREPARATION
+  PEST_MANAGEMENT
+  DISEASE_MANAGEMENT
+  EQUIPMENT_USAGE
+  OTHER
+}
+
+model Activity {
+  id               String       @id @default(uuid())
+  farmId           String
+  farm             Farm         @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId           String?
+  plot             Plot?        @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  cropId           String?
+  crop             Crop?        @relation(fields: [cropId], references: [id], onDelete: SetNull)
+  type             ActivityType
+  date             DateTime     @db.Date
+  description      String?
+  productName      String?
+  productCategory  String?
+  quantity         Decimal?     @db.Decimal(14, 3)
+  quantityUnit     String?
+  areaCovered      Decimal?     @db.Decimal(12, 4)
+  areaUnit         AreaUnit?
+  dilution         String?      // e.g. "2 ml per litre" — free text exactly as recommended
+  waterQuantity    Decimal?     @db.Decimal(14, 3)
+  waterUnit        String?
+  cost             Decimal?     @db.Decimal(12, 2)
+  laborDetails     String?
+  notes            String?
+  sourceReference  String?
+  followUpDate     DateTime?    @db.Date
+  createdById      String
+  version          Int          @default(1)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  deletedAt        DateTime?
+
+  attachments  Attachment[]
+  inventoryTxns InventoryTransaction[]
+  labor        LaborRecord[]
+  expenses     Expense[]
+
+  @@index([farmId, date])
+  @@index([plotId, date])
+}
+
+model Attachment {
+  id           String     @id @default(uuid())
+  farmId       String
+  farm         Farm       @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  activityId   String?
+  activity     Activity?  @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  expenseId    String?
+  expense      Expense?   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  soilTestId   String?
+  soilTest     SoilTest?  @relation(fields: [soilTestId], references: [id], onDelete: Cascade)
+  issueId      String?
+  issue        CropIssue? @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  fileName     String
+  mimeType     String
+  size         Int
+  storagePath  String     @unique
+  uploadedById String
+  createdAt    DateTime   @default(now())
+
+  @@index([farmId])
+}
+
+// User-saved product references used by the application calculator.
+// A dose may only be stored together with the source it came from (label, KVK, university package of practices...).
+model InputProduct {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  category        String
+  dose            Decimal? @db.Decimal(14, 4)
+  doseUnit        String?  // kg | g | l | ml
+  doseBasis       String?  // per_area | per_litre | per_plant
+  doseBasisArea   Decimal? @db.Decimal(12, 4)
+  doseBasisUnit   String?  // acre | hectare | cent | sq_m | litre | plant
+  cropKey         String?
+  sourceReference String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, name])
+}
+
+// ---------------------------------------------------------------- Inventory
+
+enum InventoryCategory {
+  FERTILIZER
+  PESTICIDE
+  SEEDS
+  TOOLS
+  EQUIPMENT
+  IRRIGATION
+  OTHER
+}
+
+enum InventoryTxnType {
+  PURCHASE
+  USAGE
+  WASTAGE
+  ADJUSTMENT
+}
+
+model InventoryItem {
+  id                String            @id @default(uuid())
+  farmId            String
+  farm              Farm              @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  name              String
+  category          InventoryCategory
+  unit              String            // kg | g | l | ml | bag | packet | nos
+  quantity          Decimal           @default(0) @db.Decimal(14, 3)
+  lowStockThreshold Decimal?          @db.Decimal(14, 3)
+  expiryDate        DateTime?         @db.Date
+  supplier          String?
+  storageNotes      String?
+  version           Int               @default(1)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  deletedAt         DateTime?
+
+  transactions InventoryTransaction[]
+
+  @@unique([farmId, name])
+}
+
+model InventoryTransaction {
+  id          String           @id @default(uuid())
+  itemId      String
+  item        InventoryItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type        InventoryTxnType
+  quantity    Decimal          @db.Decimal(14, 3) // always positive; ADJUSTMENT uses `delta`
+  delta       Decimal          @db.Decimal(14, 3) // signed change applied to stock
+  unitCost    Decimal?         @db.Decimal(12, 2)
+  totalCost   Decimal?         @db.Decimal(12, 2)
+  date        DateTime         @db.Date
+  supplier    String?
+  notes       String?
+  activityId  String?
+  activity    Activity?        @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  expenseId   String?          @unique
+  expense     Expense?         @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  createdById String
+  createdAt   DateTime         @default(now())
+
+  @@index([itemId, date])
+}
+
+// ---------------------------------------------------------------- Labour
+
+enum WageType {
+  DAILY
+  HALF_DAY
+  HOURLY
+  TASK
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
+
+enum WorkStatus {
+  PLANNED
+  COMPLETED
+}
+
+model Worker {
+  id          String   @id @default(uuid())
+  farmId      String
+  farm        Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String?
+  category    String   // spraying | harvesting | climbing | ...
+  defaultWage Decimal? @db.Decimal(12, 2)
+  wageType    WageType @default(DAILY)
+  notes       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  labor LaborRecord[]
+  tasks TaskWorker[]
+
+  @@index([farmId])
+}
+
+model LaborRecord {
+  id             String        @id @default(uuid())
+  farmId         String
+  farm           Farm          @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId         String?
+  plot           Plot?         @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  workerId       String?
+  worker         Worker?       @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  workerLabel    String?       // used when workers are not individually registered ("3 workers")
+  workerCount    Int           @default(1)
+  taskCategory   String
+  description    String?
+  date           DateTime      @db.Date
+  wageType       WageType
+  units          Decimal       @db.Decimal(10, 2) // days, half-days, hours or tasks
+  rate           Decimal       @db.Decimal(12, 2)
+  additionalCost Decimal       @default(0) @db.Decimal(12, 2)
+  totalCost      Decimal       @db.Decimal(12, 2)
+  amountPaid     Decimal       @default(0) @db.Decimal(12, 2)
+  paymentStatus  PaymentStatus @default(PENDING)
+  workStatus     WorkStatus    @default(COMPLETED)
+  notes          String?
+  activityId     String?
+  activity       Activity?     @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  taskId         String?
+  task           Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  createdById    String
+  version        Int           @default(1)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  payments LaborPayment[]
+
+  @@index([farmId, date])
+  @@index([workerId])
+}
+
+model LaborPayment {
+  id            String      @id @default(uuid())
+  laborRecordId String
+  laborRecord   LaborRecord @relation(fields: [laborRecordId], references: [id], onDelete: Cascade)
+  amount        Decimal     @db.Decimal(12, 2)
+  date          DateTime    @db.Date
+  method        String?
+  notes         String?
+  createdAt     DateTime    @default(now())
+}
+
+// ---------------------------------------------------------------- Finance
+
+enum ExpenseCategory {
+  FERTILIZER
+  PESTICIDE
+  SEEDS
+  LABOR
+  MACHINERY
+  EQUIPMENT
+  IRRIGATION
+  ELECTRICITY
+  FUEL
+  TRANSPORT
+  MAINTENANCE
+  RENTAL
+  OTHER
+}
+
+model Expense {
+  id            String          @id @default(uuid())
+  farmId        String
+  farm          Farm            @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId        String?
+  plot          Plot?           @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  cropId        String?
+  crop          Crop?           @relation(fields: [cropId], references: [id], onDelete: SetNull)
+  category      ExpenseCategory
+  amount        Decimal         @db.Decimal(12, 2)
+  date          DateTime        @db.Date
+  description   String?
+  paymentMethod String?
+  vendor        String?
+  activityId    String?
+  activity      Activity?       @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  equipmentLogId String?        @unique
+  equipmentLog  EquipmentLog?   @relation(fields: [equipmentLogId], references: [id], onDelete: SetNull)
+  createdById   String
+  version       Int             @default(1)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  deletedAt     DateTime?
+
+  attachments  Attachment[]
+  inventoryTxn InventoryTransaction?
+
+  @@index([farmId, date])
+}
+
+model Income {
+  id              String        @id @default(uuid())
+  farmId          String
+  farm            Farm          @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId          String?
+  plot            Plot?         @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  cropId          String?
+  crop            Crop?         @relation(fields: [cropId], references: [id], onDelete: SetNull)
+  harvestId       String?
+  harvest         Harvest?      @relation(fields: [harvestId], references: [id], onDelete: SetNull)
+  source          String        @default("SALE") // SALE | OTHER
+  description     String?
+  quantity        Decimal?      @db.Decimal(14, 3)
+  unit            String?
+  pricePerUnit    Decimal?      @db.Decimal(12, 2)
+  grossAmount     Decimal       @db.Decimal(12, 2)
+  transportCost   Decimal       @default(0) @db.Decimal(12, 2)
+  otherDeductions Decimal       @default(0) @db.Decimal(12, 2)
+  netAmount       Decimal       @db.Decimal(12, 2)
+  amountReceived  Decimal?      @db.Decimal(12, 2)
+  paymentStatus   PaymentStatus @default(PAID)
+  buyer           String?
+  market          String?
+  date            DateTime      @db.Date
+  notes           String?
+  createdById     String
+  version         Int           @default(1)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  @@index([farmId, date])
+}
+
+model Harvest {
+  id        String   @id @default(uuid())
+  farmId    String
+  farm      Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId    String?
+  plot      Plot?    @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  cropId    String
+  crop      Crop     @relation(fields: [cropId], references: [id], onDelete: Restrict)
+  date      DateTime @db.Date
+  quantity  Decimal  @db.Decimal(14, 3)
+  unit      String   // kg | quintal | nuts | bunches | tonne
+  grade     String?
+  storage   String?
+  notes     String?
+  createdById String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  sales Income[]
+
+  @@index([farmId, date])
+}
+
+// ---------------------------------------------------------------- Tasks & calendar
+
+enum TaskStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Task {
+  id            String     @id @default(uuid())
+  farmId        String
+  farm          Farm       @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId        String?
+  plot          Plot?      @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  cropId        String?
+  crop          Crop?      @relation(fields: [cropId], references: [id], onDelete: SetNull)
+  title         String
+  category      String     // fertilizer | spraying | irrigation | ...
+  date          DateTime   @db.Date
+  time          String?    // HH:MM
+  description   String?
+  estimatedCost Decimal?   @db.Decimal(12, 2)
+  actualCost    Decimal?   @db.Decimal(12, 2)
+  status        TaskStatus @default(PLANNED)
+  reminderDays  Int?       // remind N days before
+  notes         String?
+  createdById   String
+  version       Int        @default(1)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+
+  workers TaskWorker[]
+  labor   LaborRecord[]
+
+  @@index([farmId, date])
+}
+
+model TaskWorker {
+  taskId   String
+  task     Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  workerId String
+  worker   Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, workerId])
+}
+
+// ---------------------------------------------------------------- Soil
+
+model SoilTest {
+  id             String   @id @default(uuid())
+  farmId         String
+  farm           Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId         String?
+  plot           Plot?    @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  testDate       DateTime @db.Date
+  laboratory     String?
+  sampleId       String?
+  soilType       String?
+  ph             Decimal? @db.Decimal(4, 2)
+  ec             Decimal? @db.Decimal(8, 3)   // dS/m
+  organicCarbon  Decimal? @db.Decimal(6, 3)   // %
+  nitrogen       Decimal? @db.Decimal(10, 2)  // kg/ha (as printed on report)
+  phosphorus     Decimal? @db.Decimal(10, 2)  // kg/ha
+  potassium      Decimal? @db.Decimal(10, 2)  // kg/ha
+  micronutrients Json?    // { "Zn": 0.6, "B": 0.4, ... } in ppm as printed on report
+  notes          String?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  attachments Attachment[]
+
+  @@index([farmId, testDate])
+}
+
+// ---------------------------------------------------------------- Equipment
+
+model Equipment {
+  id           String    @id @default(uuid())
+  farmId       String
+  farm         Farm      @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  name         String
+  category     String    // sprayer | pump | tiller | dryer | ladder | vehicle | tool | other
+  ownership    String    @default("OWNED") // OWNED | RENTED | SHARED
+  purchaseDate DateTime? @db.Date
+  purchaseCost Decimal?  @db.Decimal(12, 2)
+  status       String    @default("WORKING") // WORKING | NEEDS_REPAIR | RETIRED
+  rentalInfo   String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  logs EquipmentLog[]
+}
+
+model EquipmentLog {
+  id          String    @id @default(uuid())
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  type        String    // MAINTENANCE | REPAIR | RENTAL | USAGE
+  date        DateTime  @db.Date
+  cost        Decimal?  @db.Decimal(12, 2)
+  hours       Decimal?  @db.Decimal(8, 2)
+  description String?
+  nextDueDate DateTime? @db.Date
+  createdAt   DateTime  @default(now())
+
+  expense Expense?
+}
+
+// ---------------------------------------------------------------- Crop issues & resources
+
+model CropIssue {
+  id                 String    @id @default(uuid())
+  farmId             String
+  farm               Farm      @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  plotId             String?
+  plot               Plot?     @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  cropId             String?
+  crop               Crop?     @relation(fields: [cropId], references: [id], onDelete: SetNull)
+  title              String
+  description        String
+  symptoms           String[]
+  affectedArea       String?
+  startedOn          DateTime? @db.Date
+  previousTreatments String?
+  status             String    @default("OPEN") // OPEN | MONITORING | RESOLVED
+  aiNotes            String?   // AI observations — never a diagnosis
+  expertAdvice       String?   // what the farmer was told by an officer / KVK, entered by the farmer
+  resolution         String?
+  createdById        String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  attachments Attachment[]
+}
+
+model Resource {
+  id             String    @id @default(uuid())
+  name           String
+  type           String    // research_institute | kvk | department | helpline | board | lab | portal
+  district       String?
+  description    String
+  phone          String?
+  website        String?
+  address        String?
+  crops          String[]
+  sourceUrl      String?
+  lastVerifiedAt DateTime?
+  verificationNote String?
+}
+
+// ---------------------------------------------------------------- Schemes
+
+model Scheme {
+  id                 String    @id @default(uuid())
+  slug               String    @unique
+  name               String
+  nameKn             String?
+  department         String
+  level              String    // CENTRAL | STATE
+  categories         String[]
+  crops              String[]  // empty = not crop specific
+  districts          String[]  // empty = all districts
+  description        String
+  eligibility        String
+  eligibilityRules   Json?     // machine-checkable subset, e.g. { "landholder": true }
+  benefits           String
+  documents          String[]
+  applicationProcess String
+  deadline           String?
+  officialUrl        String
+  sourceName         String
+  sourceUrl          String
+  lastVerifiedAt     DateTime?
+  verificationNote   String?
+  status             String    @default("UNKNOWN") // ACTIVE | CLOSED | UNKNOWN
+  isSample           Boolean   @default(false)
+  updatedAt          DateTime  @updatedAt
+
+  trackers SchemeTracker[]
+}
+
+model SchemeTracker {
+  id                 String    @id @default(uuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schemeId           String
+  scheme             Scheme    @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  bookmarked         Boolean   @default(true)
+  status             String    @default("INTERESTED") // INTERESTED | COLLECTING_DOCUMENTS | APPLIED | APPROVED | REJECTED | NOT_ELIGIBLE
+  collectedDocuments String[]
+  applicationRef     String?
+  notes              String?
+  followUpDate       DateTime? @db.Date
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([userId, schemeId])
+}
+
+// ---------------------------------------------------------------- Market prices & weather (external data with provenance)
+
+enum DataKind {
+  LIVE
+  CACHED
+  SAMPLE
+}
+
+model MarketPrice {
+  id          String   @id @default(uuid())
+  commodity   String   // as published by source, e.g. "Arecanut(Betelnut/Supari)"
+  cropKey     String   // our crop key, e.g. "arecanut"
+  variety     String   @default("")
+  grade       String   @default("")
+  market      String
+  district    String
+  state       String
+  priceDate   DateTime @db.Date
+  minPrice    Decimal  @db.Decimal(12, 2)
+  maxPrice    Decimal  @db.Decimal(12, 2)
+  modalPrice  Decimal  @db.Decimal(12, 2)
+  unit        String   @default("Rs/Quintal")
+  source      String
+  sourceUrl   String
+  dataKind    DataKind
+  retrievedAt DateTime @default(now())
+
+  @@unique([cropKey, variety, grade, market, priceDate, source])
+  @@index([cropKey, priceDate])
+  @@index([district])
+}
+
+model MarketFavorite {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind   String // CROP | MARKET
+  value  String
+
+  @@unique([userId, kind, value])
+}
+
+model PriceAlert {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cropKey         String
+  market          String?
+  direction       String    // ABOVE | BELOW
+  threshold       Decimal   @db.Decimal(12, 2)
+  active          Boolean   @default(true)
+  lastTriggeredAt DateTime?
+  createdAt       DateTime  @default(now())
+}
+
+model WeatherCache {
+  key       String   @id // provider:lat:lon (rounded to 2 decimals)
+  provider  String
+  payload   Json
+  fetchedAt DateTime
+}
+
+// ---------------------------------------------------------------- Notifications & sync
+
+model Notification {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  farmId      String?
+  farm        Farm?     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  type        String    // TASK | INVENTORY | PAYMENT | WEATHER | PRICE | SCHEME | SYSTEM
+  title       String
+  body        String
+  link        String?
+  dedupeKey   String
+  readAt      DateTime?
+  dismissedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+}
+
+// Idempotency log: every write that carries a client mutation id is recorded here so replays are no-ops.
+model ProcessedMutation {
+  id         String   @id // client-generated mutation UUID
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entity     String
+  entityId   String?
+  status     Int
+  response   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
