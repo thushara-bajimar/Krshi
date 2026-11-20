@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+.env
+.env.local
+/.pgdata
+/uploads
+*.tsbuildinfo
+next-env.d.ts
+coverage
+test-results
+.pg.log
+.next-dev.log
+.next-prod.log
+.build.log
