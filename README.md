@@ -295,3 +295,9 @@ See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. In short:
 ## Future improvements
 
 Server-side PDF and WhatsApp sharing of reports · password reset by OTP or email · web push reminders · verified scheme data with a review workflow · live APMC/cooperative arecanut prices (e.g. CAMPCO) once licensed sources are available · full Kannada translation and Kannada TTS voices · offline caching of farm reference lists for brand-new devices · object storage for uploads · equipment-sharing directory between farmers · crop-calendar templates approved by KVK / UAHS.
+
+---
+
+## Licence
+
+Copyright © 2026 Thushara B S. **All rights reserved.** This repository is public for viewing only; no permission is granted to use, copy, modify or distribute the code without written permission. See [LICENSE](LICENSE). Third-party packages and fonts remain under their own licences.
