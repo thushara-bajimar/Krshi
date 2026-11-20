@@ -147,7 +147,7 @@ npm run dev                          # http://localhost:3000
 
 | Script | Purpose |
 |---|---|
-| `npm run dev` / `build` / `start` | Next.js development / production build / production server |
+| `npm run dev` / `build` / `start` | Development server (Turbopack; `npm run dev:webpack` for the classic compiler) / production build / production server |
 | `npm run db:start` | Start embedded PostgreSQL (creates `krishi` and `krishi_test` databases) |
 | `npm run db:migrate` / `db:deploy` / `db:reset` | Prisma migrations |
 | `npm run db:seed` | Seed reference data and the demo account (re-runnable) |

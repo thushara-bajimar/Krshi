@@ -25,22 +25,40 @@ export function resolveLocation(farm: { latitude?: unknown; longitude?: unknown;
   return { lat: d.lat, lon: d.lon, label: `${d.label} (district centre)`, precise: false };
 }
 
+// Refreshes in flight, so many page views do not trigger duplicate provider calls.
+const refreshing = new Map<string, Promise<WeatherReport | null>>();
+
+async function refresh(key: string, lat: number, lon: number, label: string): Promise<WeatherReport | null> {
+  const data = await provider.fetch(lat, lon);
+  const fetchedAt = new Date();
+  await prisma.weatherCache.upsert({ where: { key }, update: { payload: data as object, fetchedAt }, create: { key, provider: provider.id, payload: data as object, fetchedAt } });
+  return { ...data, locationLabel: label, fetchedAt: fetchedAt.toISOString(), stale: false };
+}
+
+/**
+ * Stale-while-revalidate: a fresh cache entry (< 30 min) is returned as LIVE. An older entry is returned
+ * immediately, labelled as cached with its fetch time, while a background refresh updates it — so pages never
+ * wait on a slow network. Only when nothing is cached does the request wait for the provider.
+ */
 export async function getWeather(lat: number, lon: number, label: string): Promise<WeatherReport | null> {
   const key = `${provider.id}:${lat.toFixed(2)}:${lon.toFixed(2)}`;
   const cached = await prisma.weatherCache.findUnique({ where: { key } });
-  if (cached && Date.now() - cached.fetchedAt.getTime() < TTL_MS) {
-    return { ...(cached.payload as object), locationLabel: label, fetchedAt: cached.fetchedAt.toISOString(), stale: false } as WeatherReport;
+  const fromCache = (stale: boolean) =>
+    ({ ...(cached!.payload as object), locationLabel: label, fetchedAt: cached!.fetchedAt.toISOString(), stale }) as WeatherReport;
+  if (cached && Date.now() - cached.fetchedAt.getTime() < TTL_MS) return fromCache(false);
+
+  let job = refreshing.get(key);
+  if (!job) {
+    job = refresh(key, lat, lon, label)
+      .catch((e) => {
+        console.warn("[weather] provider failed:", (e as Error).message);
+        return null;
+      })
+      .finally(() => refreshing.delete(key));
+    refreshing.set(key, job);
   }
-  try {
-    const data = await provider.fetch(lat, lon);
-    const fetchedAt = new Date();
-    await prisma.weatherCache.upsert({ where: { key }, update: { payload: data as object, fetchedAt }, create: { key, provider: provider.id, payload: data as object, fetchedAt } });
-    return { ...data, locationLabel: label, fetchedAt: fetchedAt.toISOString(), stale: false };
-  } catch (e) {
-    console.warn("[weather] provider failed:", (e as Error).message);
-    if (cached) return { ...(cached.payload as object), locationLabel: label, fetchedAt: cached.fetchedAt.toISOString(), stale: true } as WeatherReport;
-    return null;
-  }
+  if (cached) return fromCache(true); // don't make the farmer wait; the refresh continues in the background
+  return job;
 }
 
 export const weatherProviderInfo = { name: provider.name, url: provider.url, terms: provider.terms };

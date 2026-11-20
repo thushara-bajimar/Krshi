@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Allows a second build folder (e.g. for testing) without clobbering the main .next directory.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   async headers() {
     return [
       {

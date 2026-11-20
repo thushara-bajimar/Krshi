@@ -15,7 +15,7 @@ const ICON = { TASK: CalendarDays, INVENTORY: Package, PAYMENT: IndianRupee, WEA
 
 export default async function NotificationsPage({ searchParams }: { searchParams: Promise<{ filter?: string }> }) {
   const ctx = await pageContext();
-  await generateNotifications(ctx.user.id, true).catch((e) => console.warn("[notifications]", e));
+  await generateNotifications(ctx.user.id).catch((e) => console.warn("[notifications]", e));
   const { filter } = await searchParams;
   const items = await prisma.notification.findMany({
     where: { userId: ctx.user.id, dismissedAt: null, ...(filter === "unread" ? { readAt: null } : {}) },

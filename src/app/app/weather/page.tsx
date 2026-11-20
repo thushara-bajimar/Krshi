@@ -35,7 +35,7 @@ export default async function WeatherPage() {
       ) : (
         <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
           <div className="space-y-6">
-            {w.stale && <Notice tone="warn">Showing a saved forecast from {dateTime(w.fetchedAt)} — the provider could not be reached. It may be out of date.</Notice>}
+            {w.stale && <Notice tone="warn">Showing the forecast saved at {dateTime(w.fetchedAt)}. A newer one is being fetched in the background — reload in a moment. If it stays the same, the provider cannot be reached right now.</Notice>}
             <Card>
               <CardBody className="flex flex-wrap items-center gap-6">
                 <WeatherIcon code={w.current.weatherCode} className="h-14 w-14 text-leaf-700" />
