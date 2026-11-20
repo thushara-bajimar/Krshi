@@ -13,3 +13,6 @@ test-results
 .next-dev.log
 .next-prod.log
 .build.log
+
+# Personal study / presentation material — kept out of the public repository
+/private-docs/
